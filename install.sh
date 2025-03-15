@@ -22,7 +22,7 @@ mkdir -p ~/.local/bin
 
 # Betiği indir
 echo "Güncelleme betiği indiriliyor..."
-curl -o ~/.local/bin/update-all https://raw.githubusercontent.com/OguzhanDUYAR/arch-update/main/update-all-fish
+curl -o ~/.local/bin/update-all https://raw.githubusercontent.com/OguzhanDUYAR/arch-update/main/update-all
 
 # Çalıştırma iznini ver
 chmod +x ~/.local/bin/update-all
