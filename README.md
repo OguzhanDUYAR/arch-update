@@ -61,6 +61,21 @@ chmod +x update-all/update-all
 ```bash
 mv update-all/update-all ~/.local/bin/
 ```
+Or
+
+## Fast Installation
+
+To install the update-all script with a single command:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/yourusername/repo-name/main/install.sh | bash
+```
+# Download
+```bash
+curl -o ~/.local/bin/update-all https://raw.githubusercontent.com/OguzhanDUYAR/arch-update/main/update-all
+```
+# Authorization to work
+chmod +x ~/.local/bin/update-all
 
 ## 💻 Usage
 
