@@ -83,6 +83,11 @@ sudo pacman -S clustalw mafft muscle blast+ bowtie2 bwa samtools bcftools mega m
 pip install biopython pandas numpy scipy matplotlib seaborn scikit-learn
 ```
 
+### Conda Biyoinformatik Paketleri
+```bash
+conda install pandas openpyxl biopython requests matplotlib python-dotemail
+conda install requests python-dotenv feedparser biopython
+```
 ## Sorun Giderme
 
 ### GPG Anahtar Hatası Durumunda
