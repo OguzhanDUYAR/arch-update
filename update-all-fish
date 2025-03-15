@@ -1,19 +1,19 @@
 #!/usr/bin/fish
 
-# ~/.local/bin/update-all dosyası
-cat > ~/.local/bin/update-all << 'EOL'
-#!/usr/bin/fish
-
 # Renk tanımlamaları
 set green (set_color green)
 set red (set_color red)
 set blue (set_color blue)
 set yellow (set_color yellow)
+set magenta (set_color magenta)
+set cyan (set_color cyan)
 set normal (set_color normal)
 
 # Başlık fonksiyonu
 function print_header
+    echo ""
     echo $blue"=== $argv[1] ==="$normal
+    echo ""
 end
 
 # Hata kontrolü fonksiyonu
@@ -30,33 +30,96 @@ end
 # Bellek kullanımını optimize et
 function clean_memory
     print_header "Bellek Optimizasyonu"
+    echo $cyan"Önbellek temizleniyor ve bellek optimize ediliyor..."$normal
+    
+    # Önbellek temizliği
     sudo sync
+    check_error "Disk önbellek senkronizasyonu"
+    
+    # Önbellekleri temizle
     sudo sh -c 'echo 3 > /proc/sys/vm/drop_caches'
+    check_error "Page cache ve dentries temizliği"
+    
+    # Bellek sıkıştırma
     sudo sh -c 'echo 1 > /proc/sys/vm/compact_memory'
-    check_error "Bellek temizleme"
+    check_error "Bellek sıkıştırma"
+    
+    # Swap optimizasyonu
+    if test -e /proc/sys/vm/swappiness
+        set current_swappiness (cat /proc/sys/vm/swappiness)
+        echo $yellow"Mevcut swappiness değeri: $current_swappiness"$normal
+        
+        # Önerilen swappiness değeri
+        if test $current_swappiness -gt 60
+            echo $cyan"Swappiness değeri düşürülüyor..."$normal
+            sudo sh -c 'echo 60 > /proc/sys/vm/swappiness'
+            check_error "Swappiness optimizasyonu"
+        end
+    end
 end
 
 # Pacman önbellek temizliği
 function clean_pacman_cache
     print_header "Pacman Önbellek Temizliği"
+    
+    # Disk kullanımını raporla
+    echo $cyan"Pacman önbellek temizliği öncesi disk kullanımı:"$normal
+    df -h /var/cache/pacman/pkg/
+    
+    # En son sürüm dışındaki tüm paket önbelleklerini temizle
     sudo paccache -rk1
+    check_error "Aktif paket önbelleğini koruma (en son sürüm)"
+    
+    # Yüklü olmayan paketlerin tüm önbelleklerini temizle
     sudo paccache -ruk0
-    check_error "Önbellek temizleme"
+    check_error "Yüklü olmayan paket önbelleklerini temizleme"
+    
+    # İsteğe bağlı olarak tüm önbelleği temizleme seçeneği
+    if test -n "$argv" -a "$argv[1]" = "full"
+        echo $yellow"Tüm pacman önbelleği temizleniyor!"$normal
+        sudo rm -rf /var/cache/pacman/pkg/*
+        check_error "Tam önbellek temizliği"
+    end
+    
+    # Temizlik sonrası disk kullanımını raporla
+    echo $cyan"Pacman önbellek temizliği sonrası disk kullanımı:"$normal
+    df -h /var/cache/pacman/pkg/
 end
 
 # Sistem güncellemesi
 function update_system
     print_header "Sistem Güncellemesi"
+    
+    # Pacman ayna listesini güncelle
+    if type -q reflector
+        echo $cyan"Pacman ayna listesi güncelleniyor..."$normal
+        sudo reflector --latest 10 --protocol https --sort rate --save /etc/pacman.d/mirrorlist
+        check_error "Ayna listesi güncelleme"
+    end
+    
+    # Paket veritabanını senkronize et ve sistemi güncelle
+    echo $cyan"Paket veritabanı senkronize ediliyor ve sistem güncelleniyor..."$normal
     sudo pacman -Syyu --noconfirm
     check_error "Pacman güncellemesi"
+    
+    # Sistemi yeniden başlatma kontrolü
+    if test -e /usr/lib/systemd/system.conf
+        set needs_reboot (find /usr/lib/modules -type f -newer /proc/1/exe | wc -l)
+        if test $needs_reboot -gt 0
+            echo $magenta"DİKKAT: Linux çekirdeği güncellendi. Sistem yeniden başlatılmalı!"$normal
+        end
+    end
 end
 
 # AUR güncellemesi
 function update_aur
     if type -q yay
         print_header "AUR Güncellemesi"
+        echo $cyan"AUR paketleri güncelleniyor..."$normal
         yay -Sua --noconfirm
         check_error "AUR güncellemesi"
+    else
+        echo $yellow"Yay bulunamadı, AUR güncellemesi atlanıyor."$normal
     end
 end
 
@@ -64,27 +127,106 @@ end
 function update_flatpak
     if type -q flatpak
         print_header "Flatpak Güncellemesi"
+        
+        # Kurulu flatpak uygulamalarını listele
+        echo $cyan"Kurulu Flatpak uygulamaları:"$normal
+        flatpak list --app
+        
+        # Flatpak repo güncelleme
+        echo $cyan"Flatpak depoları güncelleniyor..."$normal
+        flatpak update --appstream
+        check_error "Flatpak depo güncelleme"
+        
+        # Flatpak uygulama güncelleme
+        echo $cyan"Flatpak uygulamaları güncelleniyor..."$normal
         flatpak update -y
-        check_error "Flatpak güncellemesi"
+        check_error "Flatpak güncelleme"
+    else
+        echo $yellow"Flatpak bulunamadı, güncelleme atlanıyor."$normal
     end
 end
 
-# Conda güncellemesi
+# Conda güncellemesi ve ortam yönetimi
 function update_conda
     if type -q conda
-        print_header "Conda Güncellemesi"
-        conda deactivate 2>/dev/null
-        conda update --all -y
-        check_error "Conda paketleri"
-        conda update -n base -c defaults conda -y
-        check_error "Conda base"
+        print_header "Conda Güncellemesi ve Ortam Yönetimi"
         
-        # Conda ortamlarını güncelle
+        # Aktif ortamı kaydet ve devre dışı bırak
+        set previous_conda_env $CONDA_DEFAULT_ENV
+        conda deactivate 2>/dev/null
+        
+        # Conda kanallarını listele
+        echo $cyan"Conda kanalları:"$normal
+        conda config --show channels
+        
+        # Conda ana ortamını güncelle
+        echo $cyan"Conda ana yazılımı güncelleniyor..."$normal
+        conda update -n base -c defaults conda -y
+        check_error "Conda base güncelleme"
+        
+        # Tüm conda ortamlarını listele
+        echo $cyan"Mevcut Conda ortamları:"$normal
+        conda env list
+        
+        # Tüm ortamları güncelle
+        echo $cyan"Tüm Conda ortamları güncelleniyor..."$normal
         for env in (conda env list | grep -v '^#' | grep -v '^$' | awk '{print $1}')
-            echo $yellow"Conda ortamı güncelleniyor: $env"$normal
-            conda update --all -n $env -y
-            check_error "Conda $env ortamı"
+            if test "$env" != "*"
+                echo $yellow"Conda ortamı güncelleniyor: $env"$normal
+                conda update --all -n $env -y
+                check_error "Conda $env ortamı güncellemesi"
+                
+                # Pip paketlerini de güncelle (isteğe bağlı)
+                set pip_path (conda run -n $env which pip 2>/dev/null)
+                if test -n "$pip_path"
+                    echo $yellow"$env ortamında pip paketleri güncelleniyor..."$normal
+                    conda run -n $env pip list --outdated --format=freeze | grep -v '^\-e' | cut -d = -f 1 | xargs -r -n1 conda run -n $env pip install -U
+                    check_error "$env ortamında pip güncelleme"
+                end
+            end
         end
+        
+        # Conda temizlik
+        echo $cyan"Conda önbelleği temizleniyor..."$normal
+        conda clean --all -y
+        check_error "Conda önbellek temizleme"
+        
+        # Önceki ortama geri dön
+        if test -n "$previous_conda_env" -a "$previous_conda_env" != "base"
+            conda activate $previous_conda_env
+        end
+    else
+        echo $yellow"Conda bulunamadı, güncelleme atlanıyor."$normal
+    end
+end
+
+# Docker sistem temizliği
+function clean_docker
+    if type -q docker
+        print_header "Docker Temizliği"
+        
+        # Docker status kontrol et
+        if systemctl is-active --quiet docker
+            # Kullanılmayan konteynerları listele
+            echo $cyan"Çalışmayan Docker konteynerları:"$normal
+            docker ps -a --filter "status=exited" --format "table {{.ID}}\t{{.Names}}\t{{.Status}}"
+            
+            # Dangling imaj, kullanılmayan konteynır ve ağları temizle
+            echo $cyan"Docker sistemi temizleniyor..."$normal
+            docker system prune -f
+            check_error "Docker sistem temizliği"
+            
+            # Hacim temizliği
+            if test (docker volume ls -qf dangling=true | wc -l) -gt 0
+                echo $cyan"Kullanılmayan Docker hacimleri temizleniyor..."$normal
+                docker volume prune -f
+                check_error "Docker hacim temizliği"
+            end
+        else
+            echo $yellow"Docker hizmeti çalışmıyor, temizlik atlanıyor."$normal
+        end
+    else
+        echo $yellow"Docker bulunamadı, temizlik atlanıyor."$normal
     end
 end
 
@@ -93,24 +235,163 @@ function clean_system
     print_header "Sistem Temizliği"
     
     # Orphan paketleri temizle
+    echo $cyan"Orphan paketler kontrol ediliyor..."$normal
     set orphans (pacman -Qtdq)
     if test -n "$orphans"
-        sudo pacman -Rns $orphans
+        echo $yellow"Orphan paketler kaldırılıyor:"$normal
+        echo $orphans
+        sudo pacman -Rns $orphans --noconfirm
         check_error "Orphan paket temizliği"
     else
-        echo "Orphan paket bulunamadı"
+        echo $green"Orphan paket bulunamadı."$normal
     end
-
+    
     # Flatpak çöplerini temizle
     if type -q flatpak
+        echo $cyan"Flatpak çöpleri temizleniyor..."$normal
         flatpak uninstall --unused -y
         check_error "Flatpak temizliği"
     end
     
-    # Conda önbelleğini temizle
-    if type -q conda
-        conda clean --all -y
-        check_error "Conda önbellek temizliği"
+    # Çöp dizinlerini temizle
+    echo $cyan"Geçici dosyalar temizleniyor..."$normal
+    rm -rf ~/.cache/thumbnails/*
+    rm -rf ~/.local/share/Trash/files/*
+    rm -rf ~/.local/share/Trash/info/*
+    check_error "Geçici dosya temizliği"
+    
+    # Journalctl log temizliği
+    echo $cyan"Sistem logları kompakt hale getiriliyor..."$normal
+    sudo journalctl --vacuum-time=7d
+    check_error "Sistem log temizliği"
+end
+
+# Sistem sağlığı raporu
+function check_system_health
+    print_header "Sistem Sağlığı Kontrolü"
+    
+    # Disk kullanımı
+    echo $cyan"Disk Kullanımı:"$normal
+    df -h | grep -v "tmpfs\|devtmpfs"
+    echo ""
+    
+    # Bellek kullanımı
+    echo $cyan"Bellek Kullanımı:"$normal
+    free -h
+    echo ""
+    
+    # CPU sıcaklığı
+    if type -q sensors
+        echo $cyan"CPU Sıcaklığı:"$normal
+        sensors | grep -i "core\|package" | head -n 5
+        echo ""
+    end
+    
+    # Disk sağlığı
+    if type -q smartctl
+        echo $cyan"Disk Sağlığı:"$normal
+        set disks (lsblk -dn -o NAME | grep -v "loop\|sr")
+        for disk in $disks
+            echo $yellow"Disk $disk:"$normal
+            sudo smartctl -H /dev/$disk 2>/dev/null
+        end
+        echo ""
+    end
+    
+    # Sistem yükü
+    echo $cyan"Sistem Yükü:"$normal
+    uptime
+    echo ""
+    
+    # En çok kaynak kullanan işlemler
+    echo $cyan"En çok kaynak kullanan 5 işlem:"$normal
+    ps -eo pid,ppid,cmd,%mem,%cpu --sort=-%cpu | head -n 6
+    
+    # Sistemde çalışan servisler
+    echo $cyan"Başarısız servisler:"$normal
+    systemctl --failed
+end
+
+# Sistem yedekleme
+function backup_system
+    print_header "Sistem Yedekleme"
+    
+    # Yedek dizinleri oluştur
+    set backup_dir ~/.system_backups
+    set date_str (date +%Y%m%d-%H%M)
+    
+    if not test -d $backup_dir
+        mkdir -p $backup_dir
+    end
+    
+    # Paket listelerini yedekle
+    echo $cyan"Kurulu paket listeleri yedekleniyor..."$normal
+    pacman -Q > $backup_dir/pacman-packages-$date_str.txt
+    check_error "Pacman paket listesi yedekleme"
+    
+    if type -q yay
+        yay -Qm > $backup_dir/aur-packages-$date_str.txt
+        check_error "AUR paket listesi yedekleme"
+    end
+    
+    if type -q flatpak
+        flatpak list > $backup_dir/flatpak-packages-$date_str.txt
+        check_error "Flatpak paket listesi yedekleme"
+    end
+    
+    # Önemli konfigürasyon dosyalarını yedekle
+    echo $cyan"Sistem konfigürasyon dosyaları yedekleniyor..."$normal
+    
+    set config_backup $backup_dir/configs-$date_str.tar.gz
+    
+    tar -czf $config_backup \
+        /etc/fstab \
+        /etc/pacman.conf \
+        /etc/pacman.d/mirrorlist \
+        /etc/hosts \
+        /etc/hostname \
+        /etc/locale.conf \
+        ~/.bashrc \
+        ~/.zshrc \
+        ~/.config/fish/config.fish \
+        2>/dev/null
+    
+    check_error "Konfigürasyon dosyaları yedekleme"
+    
+    # Timeshift yedek oluştur (varsa)
+    if type -q timeshift
+        echo $cyan"Timeshift yedek oluşturuluyor..."$normal
+        sudo timeshift --create --comments "Otomatik yedek $date_str" --tags D
+        check_error "Timeshift yedekleme"
+    end
+    
+    echo $yellow"Yedekler $backup_dir dizinine kaydedildi."$normal
+end
+
+# Güvenlik taraması
+function security_check
+    print_header "Güvenlik Taraması"
+    
+    # RKHunter ile güvenlik taraması
+    if type -q rkhunter
+        echo $cyan"RKHunter güvenlik taraması başlatılıyor..."$normal
+        sudo rkhunter --update
+        check_error "RKHunter güncelleme"
+        
+        sudo rkhunter --check --sk
+        check_error "RKHunter tarama"
+    else
+        echo $yellow"RKHunter bulunamadı, güvenlik taraması atlanıyor."$normal
+    end
+    
+    # Sistem dosya bütünlük kontrolü
+    echo $cyan"Değiştirilmiş paket dosyaları kontrol ediliyor..."$normal
+    sudo pacman -Qkk 2>&1 | grep -v "0 değiştirilmiş dosya"
+    
+    # Açık portlar
+    if type -q ss
+        echo $cyan"Açık dinleme portları:"$normal
+        ss -tuln
     end
 end
 
@@ -121,35 +402,95 @@ function main
     echo $yellow"Güncelleme işlemi başlatılıyor..."$normal
     date "+%Y-%m-%d %H:%M:%S"
     
+    # Yedek dizini oluştur
+    set reports_dir ~/.system_reports
+    if not test -d $reports_dir
+        mkdir -p $reports_dir
+    end
+    set log_file $reports_dir/update-report-(date +%Y%m%d-%H%M).log
+    
+    # Başlık ekle
+    echo "===========================================" >> $log_file
+    echo "Sistem Güncelleme Raporu - "(date "+%Y-%m-%d %H:%M:%S") >> $log_file
+    echo "===========================================" >> $log_file
+    
+    # Argümanları kontrol et
+    set run_backup false
+    set run_security false
+    
+    if count $argv > /dev/null
+        for arg in $argv
+            switch $arg
+                case "--help" "-h"
+                    echo "Kullanım: update-all [seçenekler]"
+                    echo "Seçenekler:"
+                    echo "  --full      : Tam sistem bakımı (yedekleme ve güvenlik kontrolü dahil)"
+                    echo "  --backup    : Sistem yedeklemesi dahil et"
+                    echo "  --security  : Güvenlik taraması dahil et"
+                    echo "  --health    : Sadece sistem sağlık raporunu görüntüle"
+                    return 0
+                case "--backup"
+                    set run_backup true
+                case "--security"
+                    set run_security true
+                case "--health"
+                    check_system_health
+                    return 0
+                case "--full"
+                    set run_backup true
+                    set run_security true
+            end
+        end
+    end
+    
+    # Ana sistem bakımı
     clean_pacman_cache
     update_system
     update_aur
     update_flatpak
     update_conda
+    clean_docker
     clean_system
     clean_memory
+    
+    # İsteğe bağlı işlemler
+    if test "$run_backup" = "true"
+        backup_system
+    end
+    
+    if test "$run_security" = "true"
+        security_check
+    end
+    
+    # Sistem sağlığı kontrolü
+    check_system_health
     
     set end_time (date +%s)
     set duration (math $end_time - $start_time)
     
+    # Zamanı dakika ve saniye olarak formatla
+    set minutes (math "floor($duration / 60)")
+    set seconds (math "$duration % 60")
+    set time_str "$minutes dakika $seconds saniye"
+    
     echo $green"====================================="$normal
     echo $green"Tüm güncellemeler tamamlandı!"$normal
-    echo $yellow"Toplam süre: $duration saniye"$normal
+    echo $yellow"Toplam süre: $time_str"$normal
     echo $green"====================================="$normal
+    
+    # Raporu kaydet
+    echo "Toplam işlem süresi: $time_str" >> $log_file
+    echo "===========================================" >> $log_file
     
     # Başarısız güncelleme kontrolü
     if test $status -ne 0
-        notify-send "Güncelleme Uyarısı" "Bazı güncellemeler başarısız oldu. Lütfen kontrol edin."
+        notify-send -u critical "Güncelleme Uyarısı" "Bazı güncellemeler başarısız oldu. Lütfen kontrol edin."
         return 1
     else
-        notify-send "Güncelleme Başarılı" "Tüm güncellemeler başarıyla tamamlandı."
+        notify-send "Güncelleme Başarılı" "Tüm güncellemeler başarıyla tamamlandı. Süre: $time_str"
         return 0
     end
 end
 
-# Log tutarak ana fonksiyonu çalıştır
-main ^&1 | tee -a ~/.update-log
-EOL
-
-# Scripti çalıştırılabilir yap
-chmod +x ~/.local/bin/update-all
+# Argümanlarla ana fonksiyonu çalıştır
+main $argv
