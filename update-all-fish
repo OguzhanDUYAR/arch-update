@@ -1,0 +1,155 @@
+#!/usr/bin/fish
+
+# ~/.local/bin/update-all dosyası
+cat > ~/.local/bin/update-all << 'EOL'
+#!/usr/bin/fish
+
+# Renk tanımlamaları
+set green (set_color green)
+set red (set_color red)
+set blue (set_color blue)
+set yellow (set_color yellow)
+set normal (set_color normal)
+
+# Başlık fonksiyonu
+function print_header
+    echo $blue"=== $argv[1] ==="$normal
+end
+
+# Hata kontrolü fonksiyonu
+function check_error
+    if test $status -ne 0
+        echo $red"✘ $argv[1] başarısız oldu!"$normal
+        return 1
+    else
+        echo $green"✓ $argv[1] başarılı"$normal
+        return 0
+    end
+end
+
+# Bellek kullanımını optimize et
+function clean_memory
+    print_header "Bellek Optimizasyonu"
+    sudo sync
+    sudo sh -c 'echo 3 > /proc/sys/vm/drop_caches'
+    sudo sh -c 'echo 1 > /proc/sys/vm/compact_memory'
+    check_error "Bellek temizleme"
+end
+
+# Pacman önbellek temizliği
+function clean_pacman_cache
+    print_header "Pacman Önbellek Temizliği"
+    sudo paccache -rk1
+    sudo paccache -ruk0
+    check_error "Önbellek temizleme"
+end
+
+# Sistem güncellemesi
+function update_system
+    print_header "Sistem Güncellemesi"
+    sudo pacman -Syyu --noconfirm
+    check_error "Pacman güncellemesi"
+end
+
+# AUR güncellemesi
+function update_aur
+    if type -q yay
+        print_header "AUR Güncellemesi"
+        yay -Sua --noconfirm
+        check_error "AUR güncellemesi"
+    end
+end
+
+# Flatpak güncellemesi
+function update_flatpak
+    if type -q flatpak
+        print_header "Flatpak Güncellemesi"
+        flatpak update -y
+        check_error "Flatpak güncellemesi"
+    end
+end
+
+# Conda güncellemesi
+function update_conda
+    if type -q conda
+        print_header "Conda Güncellemesi"
+        conda deactivate 2>/dev/null
+        conda update --all -y
+        check_error "Conda paketleri"
+        conda update -n base -c defaults conda -y
+        check_error "Conda base"
+        
+        # Conda ortamlarını güncelle
+        for env in (conda env list | grep -v '^#' | grep -v '^$' | awk '{print $1}')
+            echo $yellow"Conda ortamı güncelleniyor: $env"$normal
+            conda update --all -n $env -y
+            check_error "Conda $env ortamı"
+        end
+    end
+end
+
+# Sistem temizliği
+function clean_system
+    print_header "Sistem Temizliği"
+    
+    # Orphan paketleri temizle
+    set orphans (pacman -Qtdq)
+    if test -n "$orphans"
+        sudo pacman -Rns $orphans
+        check_error "Orphan paket temizliği"
+    else
+        echo "Orphan paket bulunamadı"
+    end
+
+    # Flatpak çöplerini temizle
+    if type -q flatpak
+        flatpak uninstall --unused -y
+        check_error "Flatpak temizliği"
+    end
+    
+    # Conda önbelleğini temizle
+    if type -q conda
+        conda clean --all -y
+        check_error "Conda önbellek temizliği"
+    end
+end
+
+# Ana güncelleme fonksiyonu
+function main
+    set start_time (date +%s)
+    
+    echo $yellow"Güncelleme işlemi başlatılıyor..."$normal
+    date "+%Y-%m-%d %H:%M:%S"
+    
+    clean_pacman_cache
+    update_system
+    update_aur
+    update_flatpak
+    update_conda
+    clean_system
+    clean_memory
+    
+    set end_time (date +%s)
+    set duration (math $end_time - $start_time)
+    
+    echo $green"====================================="$normal
+    echo $green"Tüm güncellemeler tamamlandı!"$normal
+    echo $yellow"Toplam süre: $duration saniye"$normal
+    echo $green"====================================="$normal
+    
+    # Başarısız güncelleme kontrolü
+    if test $status -ne 0
+        notify-send "Güncelleme Uyarısı" "Bazı güncellemeler başarısız oldu. Lütfen kontrol edin."
+        return 1
+    else
+        notify-send "Güncelleme Başarılı" "Tüm güncellemeler başarıyla tamamlandı."
+        return 0
+    end
+end
+
+# Log tutarak ana fonksiyonu çalıştır
+main ^&1 | tee -a ~/.update-log
+EOL
+
+# Scripti çalıştırılabilir yap
+chmod +x ~/.local/bin/update-all
