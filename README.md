@@ -153,4 +153,4 @@ Project Link: [https://github.com/OguzhanDUYAR/arch-update](https://github.com/O
 
 ---
 
-⚡ Created with 💻 by [Your Name](https://github.com/OguzhanDUYAR)
+⚡ Created with 💻 by OguzhanDUYAR(https://github.com/OguzhanDUYAR)
