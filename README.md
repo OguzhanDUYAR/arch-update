@@ -1,9 +1,9 @@
 
 # System Update & Maintenance Script for Arch Linux
 
-![License](https://img.shields.io/github/license/OguzhanDUYAR/update-all)
-![Last Commit](https://img.shields.io/github/last-commit/OguzhanDUYAR/update-all)
-![Stars](https://img.shields.io/github/stars/OguzhanDUYAR/update-all)
+![License](https://img.shields.io/github/license/OguzhanDUYAR/arch-update)
+![Last Commit](https://img.shields.io/github/last-commit/OguzhanDUYAR/arch-update)
+![Stars](https://img.shields.io/github/stars/OguzhanDUYAR/arch-update)
 
 A comprehensive system maintenance and update script for Arch Linux, specifically designed for Fish shell. This script automates common system maintenance tasks and provides detailed system health monitoring.
 
@@ -147,9 +147,9 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 📫 Contact
 
-Your Name - [@OguzhanDUYAR](https://twitter.com/yourusername)
+Your Name - [@OguzhanDUYAR](https://twitter.com/OguzhanDUYAR)
 
-Project Link: [https://github.com/OguzhanDUYAR/update-all](https://github.com/OguzhanDUYAR/update-all)
+Project Link: [https://github.com/OguzhanDUYAR/arch-update](https://github.com/OguzhanDUYAR/arch-update)
 
 ---
 
